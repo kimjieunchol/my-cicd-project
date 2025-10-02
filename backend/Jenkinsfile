@@ -64,9 +64,9 @@ pipeline {
                             passwordVariable: 'REGISTRY_PASS'
                         )]) {
                             sh """
-                                # Docker config.json 생성
-                                mkdir -p /kaniko/.docker
-                                cat > /kaniko/.docker/config.json <<EOF
+                                # 작업 디렉토리에 Docker config.json 생성
+                                mkdir -p \${WORKSPACE}/.docker
+                                cat > \${WORKSPACE}/.docker/config.json <<EOF
 {
   "auths": {
     "${IMAGE_REGISTRY_URL}": {
@@ -79,7 +79,7 @@ EOF
                                 # Kaniko로 이미지 빌드 및 푸시
                                 docker run --rm \
                                   -v \$(pwd):/workspace \
-                                  -v /kaniko/.docker:/kaniko/.docker \
+                                  -v \${WORKSPACE}/.docker:/kaniko/.docker \
                                   gcr.io/kaniko-project/executor:latest \
                                   --dockerfile=/workspace/Dockerfile \
                                   --context=/workspace \

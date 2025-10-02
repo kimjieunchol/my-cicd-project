@@ -13,7 +13,7 @@ spec:
       paths:
       - backend:
           service:
-            name: sk066-myfirst-api-server
+            name: sk066-my-cicd-project
             port:
               number: 8080
         path: /

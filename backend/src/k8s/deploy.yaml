@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sk066-myfirst-api-server
+  name: sk066-my-cicd-project
   namespace: skala-practice
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: sk066-myfirst-api-server
+      app: sk066-my-cicd-project
   template:
     metadata:
       annotations:
@@ -16,12 +16,12 @@ spec:
         prometheus.io/path: '/actuator/prometheus'
         update: 40af43cd
       labels:
-        app: sk066-myfirst-api-server
+        app: sk066-my-cicd-project
     spec:
       serviceAccountName: default
       containers:
-      - name: myfirst-api-server
-        image: amdp-registry.skala-ai.com/skala25a/sk066-myfirst-api-server:1.0.0
+      - name: my-cicd-project
+        image: amdp-registry.skala-ai.com/skala25a/sk066-my-cicd-project:1.0.0
         imagePullPolicy: Always
         env:
         - name: USER_NAME

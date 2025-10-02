@@ -3,10 +3,10 @@ pipeline {
 
   environment {
     // === 사용자 수정 영역 ===
-    GIT_URL                = 'https://github.com/kimjieunchol/myfirst-api-server.git'
+    GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
     GIT_BRANCH             = 'main'            // 또는 main
     GIT_ID                 = 'skala-github-id'   // GitHub PAT credential ID
-    IMAGE_NAME             = 'sk066-myfirst-api-server'    
+    IMAGE_NAME             = 'sk066-my-cicd-project'    
     // =======================
     IMAGE_TAG              = '1.0.0'    
     IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'

@@ -1,0 +1,64 @@
+# src/main/resources/application.yml
+spring:
+  application:
+    name: ahub-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ahub_vectordb
+    username: postgres
+    password: wldms0615!
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+        thread-name-prefix: "async-"
+
+server:
+  port: 8080
+
+# OpenAI 설정
+openai:
+  api:
+    key: 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
+  embedding:
+    model: text-embedding-3-small
+
+# 로깅 설정
+logging:
+  level:
+    com.ahub: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

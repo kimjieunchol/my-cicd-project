@@ -82,7 +82,7 @@ EOF
                                   -v ${WORKSPACE}/backend:/workspace \
                                   -v ${WORKSPACE}/.docker:/kaniko/.docker \
                                   gcr.io/kaniko-project/executor:latest \
-                                  --dockerfile=/workspace/Dockerfile \
+                                  --dockerfile=Dockerfile \
                                   --context=/workspace \
                                   --destination=${IMAGE_REF} \
                                   --skip-tls-verify \

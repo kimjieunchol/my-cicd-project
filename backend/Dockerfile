@@ -1,12 +1,29 @@
-FROM openjdk:17-jdk-slim
-# 또는 사용 중인 Java 버전
-
+# Multi-stage build
+FROM eclipse-temurin:17-jdk-alpine AS builder
 WORKDIR /app
 
-# Maven/Gradle 빌드 결과물 복사
-COPY target/*.jar app.jar
-# 또는 Gradle인 경우: COPY build/libs/*.jar app.jar
+# Copy Maven artifact
+COPY target/ahub-backend-*.jar app.jar
 
+# Extract layers
+RUN java -Djarmode=layertools -jar app.jar extract
+
+# Runtime stage
+FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+
+# Copy extracted layers
+COPY --from=builder /app/dependencies/ ./
+COPY --from=builder /app/spring-boot-loader/ ./
+COPY --from=builder /app/snapshot-dependencies/ ./
+COPY --from=builder /app/application/ ./
+
+# Set user
+RUN addgroup -S spring && adduser -S spring -G spring
+USER spring:spring
+
+# Expose port
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Run application
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]

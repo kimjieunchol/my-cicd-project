@@ -52,60 +52,36 @@ pipeline {
             }
         }
 
-        stage('Image Build & Push (Kaniko)') {
-    steps {
-        script {
-            echo "=== Building and Pushing Backend Docker Image with Kaniko ==="
-
-            withCredentials([usernamePassword(
-                credentialsId: "${DOCKER_CREDENTIAL_ID}",
-                usernameVariable: 'REGISTRY_USER',
-                passwordVariable: 'REGISTRY_PASS'
-            )]) {
-                sh """
-                    mkdir -p ${WORKSPACE}/.docker
-                    cat > ${WORKSPACE}/.docker/config.json <<EOF
-{
-  "auths": {
-    "${IMAGE_REGISTRY_URL}": {
-      "auth": "\$(echo -n \${REGISTRY_USER}:\${REGISTRY_PASS} | base64)"
-    }
-  }
-}
-EOF
-
-                    docker run --rm \
-                      -v ${WORKSPACE}:/workspace \
-                      -v ${WORKSPACE}/.docker:/kaniko/.docker \
-                      gcr.io/kaniko-project/executor:latest \
-                      --dockerfile=Dockerfile \
-                      --context=/workspace/backend \
-                      --destination=${IMAGE_REF} \
-                      --skip-tls-verify \
-                      --cache=true
-                """
+       stage('Image Build & Push (Kaniko)') {
+            steps {
+                script {
+                    echo "=== Building and Pushing Backend Docker Image with Kaniko ==="
+                    withCredentials([usernamePassword(credentialsId: 'skala-github-id', usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
+                        sh """
+                        mkdir -p ${WORKSPACE}/.docker
+                        echo -n ${REGISTRY_USER}:${REGISTRY_PASS} | base64 > ${WORKSPACE}/.docker/config.json
+                        docker run --rm \\
+                          -v ${WORKSPACE}:/workspace \\
+                          -v ${WORKSPACE}/.docker:/kaniko/.docker \\
+                          gcr.io/kaniko-project/executor:latest \\
+                          --dockerfile=backend/Dockerfile \\
+                          --context=/workspace \\
+                          --destination=${IMAGE_REF} \\
+                          --skip-tls-verify \\
+                          --cache=true
+                        """
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Deploy to Kubernetes') {
+            when {
+                expression { return currentBuild.currentResult == 'SUCCESS' }
+            }
             steps {
-                sh '''
-                    set -eux
-                    test -f ./k8s/deploy.yaml
-
-                    echo "--- BEFORE ---"
-                    grep -n 'image:' ./k8s/deploy.yaml || true
-
-                    sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]+#\\1:$FINAL_IMAGE_TAG#" ./k8s/deploy.yaml
-
-                    echo "--- AFTER ---"
-                    grep -n 'image:' ./k8s/deploy.yaml || true
-
-                    kubectl apply -n ${K8S_NAMESPACE} -f ./k8s
-                    kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
-                '''
+                echo "=== Deploying to Kubernetes ==="
+                // 여기에 kubectl 또는 ArgoCD 배포 명령 추가
             }
         }
     }

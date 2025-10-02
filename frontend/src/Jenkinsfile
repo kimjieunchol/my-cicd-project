@@ -4,15 +4,15 @@ pipeline {
   environment {
     // === 사용자 수정 영역 ===
     GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
-    GIT_BRANCH             = 'main'            // 또는 main
-    GIT_ID                 = 'skala-github-id'   // GitHub PAT credential ID
-    IMAGE_NAME             = 'sk066-my-cicd-project'    
+    GIT_BRANCH             = 'main'
+    GIT_ID                 = 'skala-github-id'
+    IMAGE_NAME             = 'sk066-frontend'    
     // =======================
     IMAGE_TAG              = '1.0.0'    
     IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'
     IMAGE_REGISTRY_PROJECT = 'skala25a'
 
-    DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'  // Harbor 인증 정보 ID
+    DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
     K8S_NAMESPACE          = 'skala-practice'
   }
 
@@ -24,21 +24,14 @@ pipeline {
   stages {
     stage('Clone Repository') {
       steps {
-        echo 'Clone Repository'
+        echo '=== Clone Repository ==='
         git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_ID}"
-        sh 'ls -al'
+        sh 'pwd'
+        sh 'ls -la'
+        sh 'ls -la frontend/ || echo "frontend folder not found"'
       }
     }
 
-    stage('Build with Maven') {
-      steps {
-        echo 'Build with Maven'
-        sh 'mvn clean package -DskipTests'
-        sh 'ls -al'
-      }
-    }
-
-    // 태그/이미지 경로 계산 (메타)
     stage('Compute Image Meta') {
       steps {
         script {
@@ -48,47 +41,65 @@ pipeline {
           env.REG_HOST        = env.IMAGE_REGISTRY_URL
           env.IMAGE_REF       = "${env.IMAGE_REGISTRY}/${IMAGE_NAME}:${env.FINAL_IMAGE_TAG}"
 
+          echo "=== Image Metadata ==="
           echo "REG_HOST: ${env.REG_HOST}"
           echo "IMAGE_REF: ${env.IMAGE_REF}"
+          echo "FINAL_IMAGE_TAG: ${env.FINAL_IMAGE_TAG}"
         }
       }
     }
 
-
-    // 로그인/빌드/푸시/정리
-    stage('Image Build & Push (docker)') {
-        steps {
-            script {
-                docker.withRegistry("https://${IMAGE_REGISTRY}", "${DOCKER_CREDENTIAL_ID}") {
-                    def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
-                    appImage.push()
-                }
+    stage('Image Build & Push') {
+      steps {
+        dir('frontend') {
+          script {
+            echo '=== Building and Pushing Frontend Docker Image ==='
+            docker.withRegistry("https://${IMAGE_REGISTRY}", "${DOCKER_CREDENTIAL_ID}") {
+              def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
+              appImage.push()
+              
+              // latest 태그도 푸시
+              appImage.push("latest")
             }
+          }
         }
+      }
     }
 
-    // k8s 리소스 파일(deploy.yaml) 수정 및 배포
     stage('Deploy to Kubernetes') {
       steps {
-        sh '''
+        dir('frontend') {
+          sh '''
             set -eux
-            test -f ./k8s/deploy.yaml
+            test -f ./k8s/deployment.yaml
 
-            echo "--- BEFORE ---"
-            grep -n 'image:' ./k8s/deploy.yaml || true
+            echo "=== BEFORE UPDATE ==="
+            grep -n 'image:' ./k8s/deployment.yaml || true
 
-            # IMAGE_REGISTRY/IMAGE_NAME 패턴의 태그를 FINAL_IMAGE_TAG 로 치환
-            sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]+#\\1:$FINAL_IMAGE_TAG#" ./k8s/deploy.yaml
+            # 이미지 태그 업데이트
+            sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]*#\\1:$FINAL_IMAGE_TAG#" ./k8s/deployment.yaml
 
-            echo "--- AFTER ---"
-            grep -n 'image:' ./k8s/deploy.yaml || true
+            echo "=== AFTER UPDATE ==="
+            grep -n 'image:' ./k8s/deployment.yaml || true
 
-            kubectl apply -n ${K8S_NAMESPACE} -f ./k8s
+            # Kubernetes 배포
+            kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
             kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
-        '''
+          '''
+        }
       }
     }
+  }
 
+  post {
+    success {
+      echo '✅ Frontend Pipeline succeeded!'
+    }
+    failure {
+      echo '❌ Frontend Pipeline failed!'
+    }
+    always {
+      cleanWs()
+    }
   }
 }
-

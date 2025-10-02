@@ -49,12 +49,13 @@ pipeline {
         script {
           def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
           env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
-          env.IMAGE_REGISTRY  = "${env.IMAGE_REGISTRY_URL}/${env.IMAGE_REGISTRY_PROJECT}"
           env.REG_HOST        = env.IMAGE_REGISTRY_URL
+          env.IMAGE_REGISTRY  = "${env.REG_HOST}/${env.IMAGE_REGISTRY_PROJECT}"
           env.IMAGE_REF       = "${env.IMAGE_REGISTRY}/${IMAGE_NAME}:${env.FINAL_IMAGE_TAG}"
 
           echo "=== Image Metadata ==="
           echo "REG_HOST: ${env.REG_HOST}"
+          echo "IMAGE_REGISTRY: ${env.IMAGE_REGISTRY}"
           echo "IMAGE_REF: ${env.IMAGE_REF}"
           echo "FINAL_IMAGE_TAG: ${env.FINAL_IMAGE_TAG}"
         }
@@ -66,10 +67,10 @@ pipeline {
         dir('backend') {
           script {
             echo '=== Building and Pushing Backend Docker Image ==='
-            docker.withRegistry("https://${IMAGE_REGISTRY}", "${DOCKER_CREDENTIAL_ID}") {
+            // 로그인은 Host만 사용
+            docker.withRegistry("https://${REG_HOST}", "${DOCKER_CREDENTIAL_ID}") {
               def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
               appImage.push()
-              
               // latest 태그도 푸시
               appImage.push("latest")
             }

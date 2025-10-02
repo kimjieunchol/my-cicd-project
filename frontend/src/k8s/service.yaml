@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: sk066-myfirst-api-server
+  name: sk066-my-cicd-project
   namespace: skala-practice
 spec:
   selector:
-    app: sk066-myfirst-api-server
+    app: sk066-my-cicd-project
   ports:
     - name: http
       protocol: TCP

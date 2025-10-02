@@ -57,19 +57,18 @@ pipeline {
                 dir('backend') {
                     script {
                         echo "=== Building and Pushing Backend Docker Image with Kaniko ==="
-                        
+
                         // Dockerfile 존재 확인
                         sh 'ls -la Dockerfile || echo "WARNING: Dockerfile not found!"'
-                        
+
                         withCredentials([usernamePassword(
                             credentialsId: "${DOCKER_CREDENTIAL_ID}",
                             usernameVariable: 'REGISTRY_USER',
                             passwordVariable: 'REGISTRY_PASS'
                         )]) {
                             sh """
-                                # 작업 디렉토리에 Docker config.json 생성
-                                mkdir -p \${WORKSPACE}/.docker
-                                cat > \${WORKSPACE}/.docker/config.json <<EOF
+                                mkdir -p ${WORKSPACE}/.docker
+                                cat > ${WORKSPACE}/.docker/config.json <<EOF
 {
   "auths": {
     "${IMAGE_REGISTRY_URL}": {
@@ -79,13 +78,12 @@ pipeline {
 }
 EOF
 
-                                # Kaniko로 이미지 빌드 및 푸시
                                 docker run --rm \
-                                  -v \$(pwd):/workspace \
-                                  -v \${WORKSPACE}/.docker:/kaniko/.docker \
+                                  -v ${WORKSPACE}/backend:/workspace \
+                                  -v ${WORKSPACE}/.docker:/kaniko/.docker \
                                   gcr.io/kaniko-project/executor:latest \
-                                  --dockerfile=Dockerfile \
-                                  --context=dir:///workspace \
+                                  --dockerfile=/workspace/Dockerfile \
+                                  --context=/workspace \
                                   --destination=${IMAGE_REF} \
                                   --skip-tls-verify \
                                   --cache=true

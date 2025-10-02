@@ -2,16 +2,13 @@ pipeline {
   agent any
 
   environment {
-    // === 사용자 수정 영역 ===
     GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
     GIT_BRANCH             = 'main'
     GIT_ID                 = 'skala-github-id'
-    IMAGE_NAME             = 'sk066-backend'    
-    // =======================
-    IMAGE_TAG              = '1.0.0'    
+    IMAGE_NAME             = 'sk066-my-cicd-project'
+    IMAGE_TAG              = '1.0.0'
     IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'
     IMAGE_REGISTRY_PROJECT = 'skala25a'
-
     DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
     K8S_NAMESPACE          = 'skala-practice'
   }
@@ -24,23 +21,14 @@ pipeline {
   stages {
     stage('Clone Repository') {
       steps {
-        echo '=== Clone Repository ==='
         git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_ID}"
-        sh 'pwd'
-        sh 'ls -la'
-        sh 'ls -la backend/ || echo "backend folder not found"'
+        sh 'ls -al'
       }
     }
 
     stage('Build with Maven') {
       steps {
-        echo '=== Build Backend with Maven ==='
-        dir('backend') {
-          sh 'pwd'
-          sh 'ls -la'
-          sh 'mvn clean package -DskipTests'
-          sh 'ls -la target/'
-        }
+        sh 'mvn clean package -DskipTests'
       }
     }
 
@@ -49,31 +37,22 @@ pipeline {
         script {
           def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
           env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
-          env.REG_HOST        = env.IMAGE_REGISTRY_URL
-          env.IMAGE_REGISTRY  = "${env.REG_HOST}/${env.IMAGE_REGISTRY_PROJECT}"
+          env.IMAGE_REGISTRY  = "${IMAGE_REGISTRY_URL}/${IMAGE_REGISTRY_PROJECT}"
           env.IMAGE_REF       = "${env.IMAGE_REGISTRY}/${IMAGE_NAME}:${env.FINAL_IMAGE_TAG}"
 
-          echo "=== Image Metadata ==="
-          echo "REG_HOST: ${env.REG_HOST}"
-          echo "IMAGE_REGISTRY: ${env.IMAGE_REGISTRY}"
+          echo "REGISTRY: ${env.IMAGE_REGISTRY}"
           echo "IMAGE_REF: ${env.IMAGE_REF}"
-          echo "FINAL_IMAGE_TAG: ${env.FINAL_IMAGE_TAG}"
         }
       }
     }
 
     stage('Image Build & Push') {
       steps {
-        dir('backend') {
-          script {
-            echo '=== Building and Pushing Backend Docker Image ==='
-            // 로그인은 Host만 사용
-            docker.withRegistry("https://${REG_HOST}", "${DOCKER_CREDENTIAL_ID}") {
-              def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
-              appImage.push()
-              // latest 태그도 푸시
-              appImage.push("latest")
-            }
+        script {
+          docker.withRegistry("https://${IMAGE_REGISTRY_URL}", "${DOCKER_CREDENTIAL_ID}") {
+            def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
+            appImage.push()
+            appImage.push("latest")
           }
         }
       }
@@ -81,25 +60,21 @@ pipeline {
 
     stage('Deploy to Kubernetes') {
       steps {
-        dir('backend') {
-          sh '''
-            set -eux
-            test -f ./k8s/deployment.yaml
+        sh '''
+          set -eux
+          test -f ./k8s/deployment.yaml
 
-            echo "=== BEFORE UPDATE ==="
-            grep -n 'image:' ./k8s/deployment.yaml || true
+          echo "--- BEFORE ---"
+          grep -n 'image:' ./k8s/deployment.yaml || true
 
-            # 이미지 태그 업데이트
-            sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]*#\\1:$FINAL_IMAGE_TAG#" ./k8s/deployment.yaml
+          sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]+#\\1:$FINAL_IMAGE_TAG#" ./k8s/deployment.yaml
 
-            echo "=== AFTER UPDATE ==="
-            grep -n 'image:' ./k8s/deployment.yaml || true
+          echo "--- AFTER ---"
+          grep -n 'image:' ./k8s/deployment.yaml || true
 
-            # Kubernetes 배포
-            kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
-            kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
-          '''
-        }
+          kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
+          kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
+        '''
       }
     }
   }

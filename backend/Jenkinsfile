@@ -12,7 +12,6 @@ pipeline {
         IMAGE_REGISTRY_PROJECT = 'skala25a'
         DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
         K8S_NAMESPACE          = 'skala-practice'
-        DOCKER_CERT_PATH       = "/etc/docker/certs.d/amdp-registry.skala-ai.com"
     }
 
     options {
@@ -58,11 +57,10 @@ pipeline {
                 dir('backend') {
                     script {
                         echo "=== Building and Pushing Backend Docker Image ==="
-                        withEnv(["DOCKER_CERT_PATH=${DOCKER_CERT_PATH}"]) {
-                            docker.withRegistry("https://${IMAGE_REGISTRY}", "${DOCKER_CREDENTIAL_ID}") {
-                                def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
-                                appImage.push()
-                            }
+                        // 레지스트리 URL만 사용 (프로젝트명 제외)
+                        docker.withRegistry("https://${IMAGE_REGISTRY_URL}", "${DOCKER_CREDENTIAL_ID}") {
+                            def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
+                            appImage.push()
                         }
                     }
                 }
@@ -93,7 +91,7 @@ pipeline {
     post {
         always {
             cleanWs()
-            echo "❌ Backend Pipeline finished!"
+            echo "✅ Backend Pipeline finished!"
         }
     }
 }

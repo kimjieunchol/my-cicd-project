@@ -1,117 +1,99 @@
 pipeline {
-  agent any
+    agent any
 
-  environment {
-    // === 사용자 수정 영역 ===
-    GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
-    GIT_BRANCH             = 'main'
-    GIT_ID                 = 'skala-github-id'
-    IMAGE_NAME             = 'sk066-backend'    
-    // =======================
-    IMAGE_TAG              = '1.0.0'    
-    IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'
-    IMAGE_REGISTRY_PROJECT = 'skala25a'
-
-    DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
-    K8S_NAMESPACE          = 'skala-practice'
-  }
-
-  options {
-    disableConcurrentBuilds()
-    timestamps()
-  }
-
-  stages {
-    stage('Clone Repository') {
-      steps {
-        echo '=== Clone Repository ==='
-        git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_ID}"
-        sh 'pwd'
-        sh 'ls -la'
-        sh 'ls -la backend/ || echo "backend folder not found"'
-      }
+    environment {
+        // === 사용자 수정 영역 ===
+        GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
+        GIT_BRANCH             = 'main'
+        GIT_ID                 = 'skala-github-id'
+        IMAGE_NAME             = 'sk066-my-cicd-project'
+        IMAGE_TAG              = '1.0.0'
+        IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'
+        IMAGE_REGISTRY_PROJECT = 'skala25a'
+        DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
+        K8S_NAMESPACE          = 'skala-practice'
+        DOCKER_CERT_PATH       = "/etc/docker/certs.d/amdp-registry.skala-ai.com"
     }
 
-    stage('Build with Maven') {
-      steps {
-        echo '=== Build Backend with Maven ==='
-        dir('backend') {
-          sh 'pwd'
-          sh 'ls -la'
-          sh 'mvn clean package -DskipTests'
-          sh 'ls -la target/'
-        }
-      }
+    options {
+        disableConcurrentBuilds()
+        timestamps()
     }
 
-    stage('Compute Image Meta') {
-      steps {
-        script {
-          def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
-          env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
-          env.REG_HOST        = env.IMAGE_REGISTRY_URL
-          env.IMAGE_REGISTRY  = "${env.REG_HOST}/${env.IMAGE_REGISTRY_PROJECT}"
-          env.IMAGE_REF       = "${env.IMAGE_REGISTRY}/${IMAGE_NAME}:${env.FINAL_IMAGE_TAG}"
-
-          echo "=== Image Metadata ==="
-          echo "REG_HOST: ${env.REG_HOST}"
-          echo "IMAGE_REGISTRY: ${env.IMAGE_REGISTRY}"
-          echo "IMAGE_REF: ${env.IMAGE_REF}"
-          echo "FINAL_IMAGE_TAG: ${env.FINAL_IMAGE_TAG}"
-        }
-      }
-    }
-
-    stage('Image Build & Push') {
-      steps {
-        dir('backend') {
-          script {
-            echo '=== Building and Pushing Backend Docker Image ==='
-            // 로그인은 Host만 사용
-            docker.withRegistry("https://${REG_HOST}", "${DOCKER_CREDENTIAL_ID}") {
-              def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
-              appImage.push()
-              // latest 태그도 푸시
-              appImage.push("latest")
+    stages {
+        stage('Clone Repository') {
+            steps {
+                echo '=== Clone Repository ==='
+                git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_ID}"
+                sh 'ls -al'
             }
-          }
         }
-      }
+
+        stage('Build with Maven') {
+            steps {
+                echo '=== Build Backend with Maven ==='
+                dir('backend') {
+                    sh 'mvn clean package -DskipTests'
+                    sh 'ls -la target/'
+                }
+            }
+        }
+
+        stage('Compute Image Meta') {
+            steps {
+                script {
+                    def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
+                    env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
+                    env.IMAGE_REGISTRY  = "${IMAGE_REGISTRY_URL}/${IMAGE_REGISTRY_PROJECT}"
+                    env.IMAGE_REF       = "${IMAGE_REGISTRY}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
+
+                    echo "REG_HOST: ${IMAGE_REGISTRY_URL}"
+                    echo "IMAGE_REF: ${IMAGE_REF}"
+                }
+            }
+        }
+
+        stage('Image Build & Push (docker)') {
+            steps {
+                dir('backend') {
+                    script {
+                        echo "=== Building and Pushing Backend Docker Image ==="
+                        withEnv(["DOCKER_CERT_PATH=${DOCKER_CERT_PATH}"]) {
+                            docker.withRegistry("https://${IMAGE_REGISTRY}", "${DOCKER_CREDENTIAL_ID}") {
+                                def appImage = docker.build("${IMAGE_REF}", "--platform=linux/amd64 .")
+                                appImage.push()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                    set -eux
+                    test -f ./k8s/deploy.yaml
+
+                    echo "--- BEFORE ---"
+                    grep -n 'image:' ./k8s/deploy.yaml || true
+
+                    sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]+#\\1:$FINAL_IMAGE_TAG#" ./k8s/deploy.yaml
+
+                    echo "--- AFTER ---"
+                    grep -n 'image:' ./k8s/deploy.yaml || true
+
+                    kubectl apply -n ${K8S_NAMESPACE} -f ./k8s
+                    kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
+                '''
+            }
+        }
     }
 
-    stage('Deploy to Kubernetes') {
-      steps {
-        sh '''
-            set -eux
-            test -f ./k8s/deploy.yaml
-
-            echo "--- BEFORE ---"
-            grep -n 'image:' ./k8s/deploy.yaml || true
-
-            # IMAGE_REGISTRY/IMAGE_NAME 패턴의 태그를 FINAL_IMAGE_TAG 로 치환
-            sed -Ei "s#(image:[[:space:]]*$IMAGE_REGISTRY/$IMAGE_NAME)[^[:space:]]+#\\1:$FINAL_IMAGE_TAG#" ./k8s/deploy.yaml
-
-            echo "--- AFTER ---"
-            grep -n 'image:' ./k8s/deploy.yaml || true
-
-            kubectl apply -n ${K8S_NAMESPACE} -f ./k8s
-            kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
-        '''
-      }
+    post {
+        always {
+            cleanWs()
+            echo "❌ Backend Pipeline finished!"
+        }
     }
-
-  }
-  
-
-  post {
-    success {
-      echo '✅ Backend Pipeline succeeded!'
-    }
-    failure {
-      echo '❌ Backend Pipeline failed!'
-    }
-    always {
-      cleanWs()
-    }
-  }
 }

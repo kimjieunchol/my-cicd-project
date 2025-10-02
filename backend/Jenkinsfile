@@ -54,21 +54,20 @@ pipeline {
 
         stage('Image Build & Push (Kaniko)') {
             steps {
-                dir('backend') {
-                    script {
-                        echo "=== Building and Pushing Backend Docker Image with Kaniko ==="
+                script {
+                    echo "=== Building and Pushing Backend Docker Image with Kaniko ==="
 
-                        // Dockerfile 존재 확인
-                        sh 'ls -la Dockerfile || echo "WARNING: Dockerfile not found!"'
+                    // Dockerfile 존재 확인
+                    sh 'ls -la backend/Dockerfile || echo "WARNING: Dockerfile not found!"'
 
-                        withCredentials([usernamePassword(
-                            credentialsId: "${DOCKER_CREDENTIAL_ID}",
-                            usernameVariable: 'REGISTRY_USER',
-                            passwordVariable: 'REGISTRY_PASS'
-                        )]) {
-                            sh """
-                                mkdir -p ${WORKSPACE}/.docker
-                                cat > ${WORKSPACE}/.docker/config.json <<EOF
+                    withCredentials([usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIAL_ID}",
+                        usernameVariable: 'REGISTRY_USER',
+                        passwordVariable: 'REGISTRY_PASS'
+                    )]) {
+                        sh """
+                            mkdir -p ${WORKSPACE}/.docker
+                            cat > ${WORKSPACE}/.docker/config.json <<EOF
 {
   "auths": {
     "${IMAGE_REGISTRY_URL}": {
@@ -78,17 +77,16 @@ pipeline {
 }
 EOF
 
-                                docker run --rm \
-                                  -v ${WORKSPACE}/backend:/workspace \
-                                  -v ${WORKSPACE}/.docker:/kaniko/.docker \
-                                  gcr.io/kaniko-project/executor:latest \
-                                  --dockerfile=Dockerfile \
-                                  --context=/workspace \
-                                  --destination=${IMAGE_REF} \
-                                  --skip-tls-verify \
-                                  --cache=true
-                            """
-                        }
+                            docker run --rm \
+                              -v ${WORKSPACE}:/workspace \
+                              -v ${WORKSPACE}/.docker:/kaniko/.docker \
+                              gcr.io/kaniko-project/executor:latest \
+                              --dockerfile=backend/Dockerfile \
+                              --context=/workspace \
+                              --destination=${IMAGE_REF} \
+                              --skip-tls-verify \
+                              --cache=true
+                        """
                     }
                 }
             }

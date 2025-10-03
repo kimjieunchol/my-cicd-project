@@ -1,5 +1,5 @@
 # =========================
-# 2. Postgres Secret
+# 1. Postgres Secret
 # =========================
 apiVersion: v1
 kind: Secret
@@ -13,7 +13,7 @@ stringData:
 ---
 
 # =========================
-# 3. Postgres Deployment + Service
+# 2. Postgres Deployment
 # =========================
 apiVersion: apps/v1
 kind: Deployment
@@ -49,6 +49,9 @@ spec:
 
 ---
 
+# =========================
+# 3. Postgres Service
+# =========================
 apiVersion: v1
 kind: Service
 metadata:
@@ -65,7 +68,7 @@ spec:
 ---
 
 # =========================
-# 4. Redis Deployment + Service
+# 4. Redis Deployment
 # =========================
 apiVersion: apps/v1
 kind: Deployment
@@ -91,6 +94,9 @@ spec:
 
 ---
 
+# =========================
+# 5. Redis Service
+# =========================
 apiVersion: v1
 kind: Service
 metadata:
@@ -107,7 +113,7 @@ spec:
 ---
 
 # =========================
-# 5. Backend Secret (OpenAI Key)
+# 6. OpenAI Secret
 # =========================
 apiVersion: v1
 kind: Secret
@@ -121,7 +127,7 @@ stringData:
 ---
 
 # =========================
-# 6. Backend Deployment + Service
+# 7. Backend Deployment
 # =========================
 apiVersion: apps/v1
 kind: Deployment
@@ -141,7 +147,7 @@ spec:
       serviceAccountName: default
       containers:
       - name: backend
-        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:1.0.0
+        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:1.0.0  # Jenkinsfile에서 자동 교체
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -149,6 +155,8 @@ spec:
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: prod
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: update
         - name: SPRING_DATASOURCE_URL
           value: jdbc:postgresql://postgres.skala-practice.svc.cluster.local:5432/ahub_vectordb
         - name: SPRING_DATASOURCE_USERNAME
@@ -159,7 +167,7 @@ spec:
               name: postgres-secret
               key: postgres-password
         - name: SPRING_REDIS_HOST
-          value: redis
+          value: redis.skala-practice.svc.cluster.local
         - name: SPRING_REDIS_PORT
           value: "6379"
         - name: OPENAI_API_KEY
@@ -169,26 +177,33 @@ spec:
               key: api-key
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
             memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
             cpu: "500m"
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 90
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
             port: 8080
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
 
 ---
 
+# =========================
+# 8. Backend Service
+# =========================
 apiVersion: v1
 kind: Service
 metadata:
@@ -205,7 +220,7 @@ spec:
 ---
 
 # =========================
-# 7. Backend Ingress
+# 9. Backend Ingress
 # =========================
 apiVersion: networking.k8s.io/v1
 kind: Ingress

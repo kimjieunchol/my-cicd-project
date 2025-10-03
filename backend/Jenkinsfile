@@ -2,16 +2,19 @@ pipeline {
     agent any
 
     environment {
-        // === 사용자 수정 영역 ===
         GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
         GIT_BRANCH             = 'main'
         GIT_ID                 = 'skala-github-id'
-        IMAGE_NAME             = 'sk066-my-cicd-project'
+        IMAGE_NAME             = 'sk066-backend'
         IMAGE_TAG              = '1.0.0'
         IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'
         IMAGE_REGISTRY_PROJECT = 'skala25a'
         DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
         K8S_NAMESPACE          = 'skala-practice'
+        
+        // Buildah 환경 변수
+        BUILDAH_ISOLATION      = 'chroot'
+        STORAGE_DRIVER         = 'vfs'
     }
 
     options {
@@ -25,6 +28,7 @@ pipeline {
                 echo '=== Clone Repository ==='
                 git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_ID}"
                 sh 'ls -al'
+                sh 'ls -al backend/'
             }
         }
 
@@ -46,50 +50,89 @@ pipeline {
                     env.IMAGE_REGISTRY  = "${IMAGE_REGISTRY_URL}/${IMAGE_REGISTRY_PROJECT}"
                     env.IMAGE_REF       = "${IMAGE_REGISTRY}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
 
+                    echo "=== Image Metadata ==="
                     echo "REG_HOST: ${IMAGE_REGISTRY_URL}"
                     echo "IMAGE_REF: ${IMAGE_REF}"
+                    echo "FINAL_IMAGE_TAG: ${FINAL_IMAGE_TAG}"
                 }
             }
         }
 
-       stage('Image Build & Push (Kaniko)') {
+        stage('Image Build & Push (Buildah)') {
             steps {
-                script {
-                    echo "=== Building and Pushing Backend Docker Image with Kaniko ==="
-                    withCredentials([usernamePassword(credentialsId: 'skala-github-id', usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
-                        sh """
-                        mkdir -p ${WORKSPACE}/.docker
-                        echo -n ${REGISTRY_USER}:${REGISTRY_PASS} | base64 > ${WORKSPACE}/.docker/config.json
-                        docker run --rm \\
-                          -v ${WORKSPACE}:/workspace \\
-                          -v ${WORKSPACE}/.docker:/kaniko/.docker \\
-                          gcr.io/kaniko-project/executor:latest \\
-                          --dockerfile=backend/Dockerfile \\
-                          --context=/workspace \\
-                          --destination=${IMAGE_REF} \\
-                          --skip-tls-verify \\
-                          --cache=true
-                        """
+                dir('backend') {
+                    script {
+                        echo "=== Building and Pushing Backend Docker Image with Buildah ==="
+                        withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
+                            sh """
+                                # Buildah 로그인
+                                echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}
+                                
+                                # 이미지 빌드
+                                sudo -E buildah bud --format docker --tls-verify=false -t ${IMAGE_REF} -f Dockerfile .
+                                
+                                # 이미지 푸시
+                                sudo -E buildah push --tls-verify=false ${IMAGE_REF}
+                                
+                                # latest 태그도 푸시
+                                sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
+                                sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
+                                
+                                # 로그아웃
+                                sudo -E buildah logout ${IMAGE_REGISTRY_URL}
+                            """
+                        }
                     }
                 }
             }
         }
 
-        stage('Deploy to Kubernetes') {
-            when {
-                expression { return currentBuild.currentResult == 'SUCCESS' }
-            }
+        stage('Update K8s Manifest') {
             steps {
-                echo "=== Deploying to Kubernetes ==="
-                // 여기에 kubectl 또는 ArgoCD 배포 명령 추가
+                dir('backend') {
+                    sh """
+                        set -eux
+                        test -f ./k8s/deployment.yaml
+
+                        echo "=== BEFORE UPDATE ==="
+                        grep -n 'image:' ./k8s/deployment.yaml || true
+
+                        # 이미지 태그 업데이트
+                        sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" ./k8s/deployment.yaml
+
+                        echo "=== AFTER UPDATE ==="
+                        grep -n 'image:' ./k8s/deployment.yaml || true
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                dir('backend') {
+                    sh """
+                        kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
+                        kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
+                    """
+                }
             }
         }
     }
 
     post {
+        success {
+            echo '✅ Backend Pipeline succeeded!'
+        }
+        failure {
+            echo '❌ Backend Pipeline failed!'
+        }
         always {
+            sh '''
+                # Buildah 정리
+                sudo -E buildah rm --all || true
+                sudo -E buildah rmi --prune || true
+            '''
             cleanWs()
-            echo "✅ Backend Pipeline finished!"
         }
     }
 }

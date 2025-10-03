@@ -1,13 +1,4 @@
 # =========================
-# 1. Namespace
-# =========================
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: skala-practice
-
----
-# =========================
 # 2. Postgres Secret
 # =========================
 apiVersion: v1
@@ -20,6 +11,7 @@ stringData:
   postgres-password: wldms0615!
 
 ---
+
 # =========================
 # 3. Postgres Deployment + Service
 # =========================
@@ -56,6 +48,7 @@ spec:
           name: postgres
 
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -70,6 +63,7 @@ spec:
   type: ClusterIP
 
 ---
+
 # =========================
 # 4. Redis Deployment + Service
 # =========================
@@ -96,6 +90,7 @@ spec:
           name: redis
 
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -110,6 +105,7 @@ spec:
   type: ClusterIP
 
 ---
+
 # =========================
 # 5. Backend Secret (OpenAI Key)
 # =========================
@@ -123,6 +119,7 @@ stringData:
   api-key: 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
 
 ---
+
 # =========================
 # 6. Backend Deployment + Service
 # =========================
@@ -191,6 +188,7 @@ spec:
           periodSeconds: 5
 
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -205,6 +203,7 @@ spec:
   type: ClusterIP
 
 ---
+
 # =========================
 # 7. Backend Ingress
 # =========================

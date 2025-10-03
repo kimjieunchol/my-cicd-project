@@ -1,74 +1,31 @@
-# =========================
-# Deployment for sk066-backend
-# =========================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sk066-backend
+  name: postgres
   namespace: skala-practice
-  labels:
-    app: sk066-backend
 spec:
   replicas: 1
-  strategy:
-    type: Recreate  # 추가: 기존 Pod 완전히 종료 후 새 Pod 시작
   selector:
     matchLabels:
-      app: sk066-backend
+      app: postgres
   template:
     metadata:
       labels:
-        app: sk066-backend
+        app: postgres
     spec:
       containers:
-      - name: backend
-        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:latest  # Jenkinsfile에서 자동 교체
-        imagePullPolicy: Always  # 추가
-        ports:
-        - containerPort: 8080
+      - name: postgres
+        image: pgvector/pgvector:pg15  # 이미지 변경
         env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: prod
-        - name: SPRING_JPA_HIBERNATE_DDL_AUTO  # 추가 - 중요!
-          value: update
-        - name: SPRING_DATASOURCE_URL
-          value: jdbc:postgresql://postgres.skala-practice.svc.cluster.local:5432/ahub_vectordb
-        - name: SPRING_DATASOURCE_USERNAME
+        - name: POSTGRES_DB
+          value: ahub_vectordb
+        - name: POSTGRES_USER
           value: postgres
-        - name: SPRING_DATASOURCE_PASSWORD
+        - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
               name: postgres-secret
               key: postgres-password
-        - name: SPRING_REDIS_HOST
-          value: redis.skala-practice.svc.cluster.local  # 수정: FQDN
-        - name: SPRING_REDIS_PORT
-          value: "6379"
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secret
-              key: api-key
-        resources:
-          requests:
-            memory: "512Mi"  # 증가
-            cpu: "200m"      # 증가
-          limits:
-            memory: "1Gi"    # 증가
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /actuator/health/liveness
-            port: 8080
-          initialDelaySeconds: 90  # 증가
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /actuator/health/readiness
-            port: 8080
-          initialDelaySeconds: 60  # 증가
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+        ports:
+        - containerPort: 5432
+          name: postgres

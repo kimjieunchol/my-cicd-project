@@ -1,23 +1,26 @@
+# =========================
+# Ingress for sk066-backend
+# =========================
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
   name: sk066-backend-ingress
   namespace: skala-practice
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: public-nginx
   rules:
   - host: sk066-backend.skala25a.project.skala-ai.com
     http:
       paths:
-      - backend:
+      - path: /
+        pathType: Prefix
+        backend:
           service:
             name: sk066-backend
             port:
               number: 8080
-        path: /
-        pathType: Prefix
   tls:
   - hosts:
     - sk066-backend.skala25a.project.skala-ai.com

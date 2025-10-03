@@ -1,8 +1,13 @@
+# =========================
+# Deployment for sk066-backend
+# =========================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sk066-backend
   namespace: skala-practice
+  labels:
+    app: sk066-backend
 spec:
   replicas: 1
   selector:
@@ -10,29 +15,35 @@ spec:
       app: sk066-backend
   template:
     metadata:
-      annotations:
-        prometheus.io/scrape: 'true'
-        prometheus.io/port: '8080'
-        prometheus.io/path: '/actuator/prometheus'
       labels:
         app: sk066-backend
     spec:
-      serviceAccountName: default
       containers:
       - name: backend
-        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:1.0.0
-        imagePullPolicy: Always
+        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:1.0.0  # Jenkinsfile에서 자동 교체
         ports:
         - containerPort: 8080
-          name: http
-          protocol: TCP
         env:
-        - name: USER_NAME
-          value: sk066
-        - name: NAMESPACE
-          value: skala-practice
-        - name: SPRING_PROFILES_ACTIVE  
-          value: "prod"
+        - name: SPRING_PROFILES_ACTIVE
+          value: prod
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:postgresql://postgres.skala-practice.svc.cluster.local:5432/ahub_vectordb
+        - name: SPRING_DATASOURCE_USERNAME
+          value: postgres
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: postgres-password
+        - name: SPRING_REDIS_HOST
+          value: redis
+        - name: SPRING_REDIS_PORT
+          value: "6379"
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-secret
+              key: api-key
         resources:
           requests:
             memory: "256Mi"

@@ -12,7 +12,6 @@ pipeline {
         DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
         K8S_NAMESPACE          = 'skala-practice'
         
-        // Buildah 환경 변수
         BUILDAH_ISOLATION      = 'chroot'
         STORAGE_DRIVER         = 'vfs'
     }
@@ -26,9 +25,21 @@ pipeline {
         stage('Clone Repository') {
             steps {
                 echo '=== Clone Repository ==='
-                git branch: "${GIT_BRANCH}", url: "${GIT_URL}", credentialsId: "${GIT_ID}"
+                // Git shallow clone으로 용량 줄이기
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${GIT_BRANCH}"]],
+                    userRemoteConfigs: [[
+                        url: "${GIT_URL}",
+                        credentialsId: "${GIT_ID}"
+                    ]],
+                    extensions: [
+                        [$class: 'CloneOption', depth: 1, shallow: true, noTags: true],
+                        [$class: 'CheckoutOption', timeout: 30]
+                    ]
+                ])
                 sh 'ls -al'
-                sh 'ls -al backend/'
+                sh 'ls -al backend/ || echo "backend not found"'
             }
         }
 
@@ -65,20 +76,15 @@ pipeline {
                         echo "=== Building and Pushing Backend Docker Image with Buildah ==="
                         withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
                             sh """
-                                # Buildah 로그인
                                 echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}
                                 
-                                # 이미지 빌드
                                 sudo -E buildah bud --format docker --tls-verify=false -t ${IMAGE_REF} -f Dockerfile .
                                 
-                                # 이미지 푸시
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REF}
                                 
-                                # latest 태그도 푸시
                                 sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
                                 
-                                # 로그아웃
                                 sudo -E buildah logout ${IMAGE_REGISTRY_URL}
                             """
                         }
@@ -97,7 +103,6 @@ pipeline {
                         echo "=== BEFORE UPDATE ==="
                         grep -n 'image:' ./k8s/deployment.yaml || true
 
-                        # 이미지 태그 업데이트
                         sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" ./k8s/deployment.yaml
 
                         echo "=== AFTER UPDATE ==="
@@ -120,19 +125,24 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                try {
+                    sh '''
+                        sudo -E buildah rm --all || true
+                        sudo -E buildah rmi --prune || true
+                    '''
+                } catch (Exception e) {
+                    echo "Buildah cleanup failed: ${e.message}"
+                }
+            }
+            cleanWs()
+        }
         success {
             echo '✅ Backend Pipeline succeeded!'
         }
         failure {
             echo '❌ Backend Pipeline failed!'
-        }
-        always {
-            sh '''
-                # Buildah 정리
-                sudo -E buildah rm --all || true
-                sudo -E buildah rmi --prune || true
-            '''
-            cleanWs()
         }
     }
 }

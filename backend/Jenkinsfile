@@ -25,7 +25,6 @@ pipeline {
         stage('Clone Repository') {
             steps {
                 echo '=== Clone Repository ==='
-                // Git shallow clone으로 용량 줄이기
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: "*/${GIT_BRANCH}"]],
@@ -98,15 +97,26 @@ pipeline {
                 dir('backend') {
                     sh """
                         set -eux
-                        test -f ./k8s/deployment.yaml
+                        
+                        # K8s 매니페스트 파일 찾기
+                        if [ -f ./k8s/deployment.yaml ]; then
+                            K8S_FILE=./k8s/deployment.yaml
+                        elif [ -f ./k8s/deploy.yaml ]; then
+                            K8S_FILE=./k8s/deploy.yaml
+                        else
+                            echo "ERROR: No deployment file found!"
+                            ls -la ./k8s/
+                            exit 1
+                        fi
 
                         echo "=== BEFORE UPDATE ==="
-                        grep -n 'image:' ./k8s/deployment.yaml || true
+                        grep -n 'image:' \${K8S_FILE} || true
 
-                        sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" ./k8s/deployment.yaml
+                        # 이미지 태그 업데이트 (IMAGE_NAME 사용)
+                        sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" \${K8S_FILE}
 
                         echo "=== AFTER UPDATE ==="
-                        grep -n 'image:' ./k8s/deployment.yaml || true
+                        grep -n 'image:' \${K8S_FILE} || true
                     """
                 }
             }
@@ -117,7 +127,7 @@ pipeline {
                 dir('backend') {
                     sh """
                         kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
-                        kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME}
+                        kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=5m
                     """
                 }
             }

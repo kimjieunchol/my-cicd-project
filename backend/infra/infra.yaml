@@ -1,0 +1,104 @@
+# Postgres Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: skala-practice
+type: Opaque
+stringData:
+  postgres-password: wldms0615!
+
+---
+# Postgres Deployment + Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: skala-practice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        env:
+        - name: POSTGRES_DB
+          value: ahub_vectordb
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: postgres-password
+        ports:
+        - containerPort: 5432
+          name: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: skala-practice
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+
+---
+# Redis Deployment + Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: skala-practice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7
+        ports:
+        - containerPort: 6379
+          name: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: skala-practice
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP
+
+---
+# Backend Secret (OpenAI Key)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openai-secret
+  namespace: skala-practice
+type: Opaque
+stringData:
+  api-key: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

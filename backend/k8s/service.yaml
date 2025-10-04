@@ -1,16 +1,12 @@
-# =========================
-# Service for sk066-backend
-# =========================
 apiVersion: v1
 kind: Service
 metadata:
-  name: sk066-backend
+  name: postgres
   namespace: skala-practice
 spec:
   selector:
-    app: sk066-backend
+    app: postgres
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 5432
+      targetPort: 5432
   type: ClusterIP
-

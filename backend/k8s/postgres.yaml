@@ -1,8 +1,11 @@
+# =========================
+# 1. Postgres Secret
+# =========================
 apiVersion: v1
 kind: Secret
 metadata:
   name: postgres-secret
   namespace: skala-practice
 type: Opaque
-data:
-  postgres-password: d2xkbXMwNjE1IQ==  # base64로 인코딩된 "wldms0615!"
+stringData:
+  postgres-password: wldms0615!

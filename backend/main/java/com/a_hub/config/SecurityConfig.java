@@ -18,11 +18,12 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .cors(cors -> {}) // corsConfigurationSource() Bean 사용
+            .cors(cors -> {})
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/**").permitAll()  // Actuator health check 허용
                 .requestMatchers("/api/users/login", "/api/users/register").permitAll()
-                .requestMatchers("/api/**").permitAll()  // 개발 단계에서는 모든 API 허용
+                .requestMatchers("/api/**").permitAll()
                 .anyRequest().authenticated()
             );
         

@@ -43,12 +43,12 @@ spec:
               name: openai-secret
               key: api-key
         resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
+      requests:
+        memory: "256Mi"    # 512Mi → 256Mi
+        cpu: "100m"        # 250m → 100m
+      limits:
+        memory: "512Mi"    # 1Gi → 512Mi
+        cpu: "500m"        # 1000m → 500m
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness

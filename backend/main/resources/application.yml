@@ -49,7 +49,7 @@ server:
 # OpenAI 설정
 openai:
   api:
-    key: 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
+    key: key: ${OPENAI_API_KEY}
   embedding:
     model: text-embedding-3-small
 
@@ -62,3 +62,19 @@ logging:
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
   pattern:
     console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true

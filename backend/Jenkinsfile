@@ -75,16 +75,32 @@ pipeline {
                         echo "=== Building and Pushing Backend Docker Image with Buildah ==="
                         withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
                             sh """
-                                echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}
+                                # 로그인 재시도 로직
+                                for i in 1 2 3; do
+                                    echo "Login attempt \$i..."
+                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}; then
+                                        echo "Login successful!"
+                                        break
+                                    fi
+                                    if [ \$i -eq 3 ]; then
+                                        echo "Login failed after 3 attempts"
+                                        exit 1
+                                    fi
+                                    sleep 3
+                                done
                                 
+                                # 이미지 빌드
                                 sudo -E buildah bud --format docker --tls-verify=false -t ${IMAGE_REF} -f Dockerfile .
                                 
+                                # 이미지 푸시
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REF}
                                 
+                                # latest 태그 추가 및 푸시
                                 sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
                                 
-                                sudo -E buildah logout ${IMAGE_REGISTRY_URL}
+                                # 로그아웃
+                                sudo -E buildah logout ${IMAGE_REGISTRY_URL} || true
                             """
                         }
                     }
@@ -112,7 +128,7 @@ pipeline {
                         echo "=== BEFORE UPDATE ==="
                         grep -n 'image:' \${K8S_FILE} || true
 
-                        # 이미지 태그 업데이트 (IMAGE_NAME 사용)
+                        # 이미지 태그 업데이트
                         sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" \${K8S_FILE}
 
                         echo "=== AFTER UPDATE ==="
@@ -123,21 +139,40 @@ pipeline {
         }
 
         stage('Deploy to Kubernetes') {
-    steps {
-        dir('backend') {
-            sh """
-                echo "=== Applying Kubernetes manifests ==="
-                kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
-                
-                echo "=== Restarting deployment ==="
-                kubectl rollout restart deployment/${IMAGE_NAME} -n ${K8S_NAMESPACE}
-                
-                echo "=== Waiting for rollout ==="
-                kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=10m
-            """
+            steps {
+                dir('backend') {
+                    script {
+                        sh """
+                            echo "=== Applying Kubernetes manifests ==="
+                            kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
+                            
+                            echo "=== Waiting for rollout (5 minutes) ==="
+                            kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=5m || true
+                            
+                            echo "=== Checking Pod status ==="
+                            kubectl get pods -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME}
+                            
+                            echo "=== Checking latest Pod events ==="
+                            kubectl describe pod -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME} | tail -30
+                        """
+                        
+                        // 롤아웃 상태 확인
+                        def rolloutStatus = sh(
+                            script: "kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=3m",
+                            returnStatus: true
+                        )
+                        
+                        if (rolloutStatus != 0) {
+                            echo "WARNING: Deployment rollout did not complete successfully"
+                            sh "kubectl logs -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME} --tail=50 || true"
+                            error("Deployment failed - check logs above")
+                        } else {
+                            echo "Deployment successful!"
+                        }
+                    }
+                }
+            }
         }
-    }
-}
     }
 
     post {

@@ -114,8 +114,9 @@ pipeline {
                     sh """
                         set -eux
                         
-                        # K8s 매니페스트 파일 찾기
-                        if [ -f ./k8s/deployment.yaml ]; then
+                        if [ -f ./k8s/sk066-backend-deploy.yaml ]; then
+                            K8S_FILE=./k8s/sk066-backend-deploy.yaml
+                        elif [ -f ./k8s/deployment.yaml ]; then
                             K8S_FILE=./k8s/deployment.yaml
                         elif [ -f ./k8s/deploy.yaml ]; then
                             K8S_FILE=./k8s/deploy.yaml

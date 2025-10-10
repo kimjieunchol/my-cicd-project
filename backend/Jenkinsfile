@@ -37,23 +37,7 @@ pipeline {
                         [$class: 'CheckoutOption', timeout: 30]
                     ]
                 ])
-                sh 'ls -al backend/ || echo "backend not found"'
-            }
-        }
-
-        stage('Prepare Registry Cert') {
-            steps {
-                dir('backend') {
-                    echo "=== Prepare Registry Certificate ==="
-                    sh """
-                        mkdir -p /tmp/certs
-                        if [ ! -s amdp-registry.crt ]; then
-                            echo "ERROR: 인증서가 존재하지 않거나 비어있음!"
-                            exit 1
-                        fi
-                        cp amdp-registry.crt /tmp/certs/
-                    """
-                }
+                sh 'ls -al backend/'
             }
         }
 
@@ -62,6 +46,7 @@ pipeline {
                 echo '=== Build Backend with Maven ==='
                 dir('backend') {
                     sh 'mvn clean package -DskipTests'
+                    sh 'ls -la target/'
                 }
             }
         }
@@ -75,6 +60,7 @@ pipeline {
                     env.IMAGE_REF       = "${IMAGE_REGISTRY}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
 
                     echo "=== Image Metadata ==="
+                    echo "REG_HOST: ${IMAGE_REGISTRY_URL}"
                     echo "IMAGE_REF: ${IMAGE_REF}"
                     echo "FINAL_IMAGE_TAG: ${FINAL_IMAGE_TAG}"
                 }
@@ -85,15 +71,12 @@ pipeline {
             steps {
                 dir('backend') {
                     script {
-                        echo "=== Building and Pushing Docker Image with Buildah ==="
+                        echo "=== Building and Pushing Backend Docker Image with Buildah ==="
                         withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
                             sh """
                                 set -eux
                                 
-                                export REGISTRY_CERT_PATH=/tmp/certs/amdp-registry.crt
-                                export SSL_CERT_FILE=\${REGISTRY_CERT_PATH}
-
-                                # 레지스트리 로그인 (3회 재시도)
+                                # 로그인 시 TLS 검증 무시
                                 for i in 1 2 3; do
                                     echo "Login attempt \$i..."
                                     if echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}; then
@@ -106,17 +89,17 @@ pipeline {
                                     fi
                                     sleep 3
                                 done
-                                
+
                                 # 이미지 빌드
                                 sudo -E buildah bud --format docker --tls-verify=false -t ${IMAGE_REF} -f Dockerfile .
-                                
+
                                 # 이미지 푸시
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REF}
-                                
-                                # latest 태그 추가
+
+                                # latest 태그 추가 및 푸시
                                 sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
-                                
+
                                 # 로그아웃
                                 sudo -E buildah logout ${IMAGE_REGISTRY_URL} || true
                             """
@@ -131,11 +114,20 @@ pipeline {
                 dir('backend') {
                     sh """
                         set -eux
-                        K8S_FILE=\$(ls ./k8s/*deploy*.yaml | head -1 || true)
-                        if [ -z "\${K8S_FILE}" ]; then
-                            echo "ERROR: Deployment 파일 없음!"
+                        
+                        if [ -f ./k8s/sk066-backend-deploy.yaml ]; then
+                            K8S_FILE=./k8s/sk066-backend-deploy.yaml
+                        elif [ -f ./k8s/deployment.yaml ]; then
+                            K8S_FILE=./k8s/deployment.yaml
+                        elif [ -f ./k8s/deploy.yaml ]; then
+                            K8S_FILE=./k8s/deploy.yaml
+                        else
+                            echo "ERROR: No deployment file found!"
+                            ls -la ./k8s/
                             exit 1
                         fi
+
+                        # 이미지 태그 업데이트
                         sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" \${K8S_FILE}
                     """
                 }
@@ -145,10 +137,25 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 dir('backend') {
-                    sh """
-                        kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
-                        kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=3m
-                    """
+                    script {
+                        sh """
+                            # Apply manifests
+                            for file in ./k8s/*.yaml; do
+                                if [[ "\$(basename \$file)" != *"deploy"* ]]; then
+                                    kubectl apply -n ${K8S_NAMESPACE} -f \$file || true
+                                fi
+                            done
+
+                            # Force replace deployment
+                            kubectl replace -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml --force || {
+                                kubectl delete deployment ${IMAGE_NAME} -n ${K8S_NAMESPACE} --ignore-not-found=true
+                                sleep 2
+                                kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml
+                            }
+
+                            kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=5m
+                        """
+                    }
                 }
             }
         }

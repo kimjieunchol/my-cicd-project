@@ -7,11 +7,11 @@ pipeline {
         GIT_ID                 = 'skala-github-id'
         IMAGE_NAME             = 'sk066-backend'
         IMAGE_TAG              = '1.0.0'
-        IMAGE_REGISTRY_URL     = 'amdp-registry.skala-ai.com'
+        IMAGE_REGISTRY_URL     = 'https://amdp-registry.skala-ai.com' // HTTPS 명시
         IMAGE_REGISTRY_PROJECT = 'skala25a'
         DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
         K8S_NAMESPACE          = 'skala-practice'
-        
+
         BUILDAH_ISOLATION      = 'chroot'
         STORAGE_DRIVER         = 'vfs'
     }
@@ -25,19 +25,7 @@ pipeline {
         stage('Clone Repository') {
             steps {
                 echo '=== Clone Repository ==='
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "*/${GIT_BRANCH}"]],
-                    userRemoteConfigs: [[
-                        url: "${GIT_URL}",
-                        credentialsId: "${GIT_ID}"
-                    ]],
-                    extensions: [
-                        [$class: 'CloneOption', depth: 1, shallow: true, noTags: true],
-                        [$class: 'CheckoutOption', timeout: 30]
-                    ]
-                ])
-                sh 'ls -al backend/'
+                checkout scm
             }
         }
 
@@ -46,7 +34,6 @@ pipeline {
                 echo '=== Build Backend with Maven ==='
                 dir('backend') {
                     sh 'mvn clean package -DskipTests'
-                    sh 'ls -la target/'
                 }
             }
         }
@@ -56,7 +43,7 @@ pipeline {
                 script {
                     def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
                     env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
-                    env.IMAGE_REGISTRY  = "${IMAGE_REGISTRY_URL}/${IMAGE_REGISTRY_PROJECT}"
+                    env.IMAGE_REGISTRY  = "${IMAGE_REGISTRY_URL.replace('https://','')}/${IMAGE_REGISTRY_PROJECT}"
                     env.IMAGE_REF       = "${IMAGE_REGISTRY}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
 
                     echo "=== Image Metadata ==="
@@ -71,15 +58,18 @@ pipeline {
             steps {
                 dir('backend') {
                     script {
-                        echo "=== Building and Pushing Backend Docker Image with Buildah ==="
                         withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
                             sh """
                                 set -eux
-                                
-                                # 로그인 시 TLS 검증 무시
+
+                                # self-signed 인증서 경로 설정
+                                sudo mkdir -p /etc/containers/certs.d/${IMAGE_REGISTRY_URL.replace('https://','')}
+                                sudo cp ../certs/ca.crt /etc/containers/certs.d/${IMAGE_REGISTRY_URL.replace('https://','')}/ca.crt || true
+
+                                # 로그인 재시도
                                 for i in 1 2 3; do
                                     echo "Login attempt \$i..."
-                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}; then
+                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL.replace('https://','')}; then
                                         echo "Login successful!"
                                         break
                                     fi
@@ -101,7 +91,7 @@ pipeline {
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
 
                                 # 로그아웃
-                                sudo -E buildah logout ${IMAGE_REGISTRY_URL} || true
+                                sudo -E buildah logout ${IMAGE_REGISTRY_URL.replace('https://','')} || true
                             """
                         }
                     }
@@ -111,75 +101,26 @@ pipeline {
 
         stage('Update K8s Manifest') {
             steps {
-                dir('backend') {
-                    sh """
-                        set -eux
-                        
-                        if [ -f ./k8s/sk066-backend-deploy.yaml ]; then
-                            K8S_FILE=./k8s/sk066-backend-deploy.yaml
-                        elif [ -f ./k8s/deployment.yaml ]; then
-                            K8S_FILE=./k8s/deployment.yaml
-                        elif [ -f ./k8s/deploy.yaml ]; then
-                            K8S_FILE=./k8s/deploy.yaml
-                        else
-                            echo "ERROR: No deployment file found!"
-                            ls -la ./k8s/
-                            exit 1
-                        fi
-
-                        # 이미지 태그 업데이트
-                        sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" \${K8S_FILE}
-                    """
-                }
+                echo '=== Update Kubernetes Manifest ==='
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                dir('backend') {
-                    script {
-                        sh """
-                            # Apply manifests
-                            for file in ./k8s/*.yaml; do
-                                if [[ "\$(basename \$file)" != *"deploy"* ]]; then
-                                    kubectl apply -n ${K8S_NAMESPACE} -f \$file || true
-                                fi
-                            done
-
-                            # Force replace deployment
-                            kubectl replace -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml --force || {
-                                kubectl delete deployment ${IMAGE_NAME} -n ${K8S_NAMESPACE} --ignore-not-found=true
-                                sleep 2
-                                kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml
-                            }
-
-                            kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=5m
-                        """
-                    }
-                }
+                echo '=== Deploy to Kubernetes ==='
             }
         }
     }
 
     post {
         always {
-            script {
-                try {
-                    sh '''
-                        sudo -E buildah rm --all || true
-                        sudo -E buildah rmi --prune || true
-                    '''
-                } catch (Exception e) {
-                    echo "Buildah cleanup failed: ${e.message}"
-                }
-            }
+            sh '''
+                sudo -E buildah rm --all || true
+                sudo -E buildah rmi --prune || true
+            '''
             cleanWs()
         }
-        success {
-            echo '✅ Backend Pipeline succeeded!'
-        }
-        failure {
-            echo '❌ Backend Pipeline failed!'
-        }
+        success { echo '✅ Pipeline succeeded!' }
+        failure { echo '❌ Pipeline failed!' }
     }
 }

@@ -23,16 +23,15 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                // Health check 엔드포인트를 가장 먼저 허용
-                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                // Actuator health endpoints 완전 개방
+                .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/api/users/login", "/api/users/register").permitAll()
                 .requestMatchers("/api/**").permitAll()
                 .anyRequest().authenticated()
             )
-            // 폼 로그인 비활성화
             .formLogin(form -> form.disable())
-            // HTTP Basic 인증 비활성화
-            .httpBasic(basic -> basic.disable());
+            .httpBasic(basic -> basic.disable())
+            .anonymous(anonymous -> anonymous.disable());  // 익명 사용자도 허용하지 않음
         
         return http.build();
     }

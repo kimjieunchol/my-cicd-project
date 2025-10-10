@@ -44,23 +44,29 @@ pipeline {
 
         stage('Prepare Registry Cert') {
             steps {
-                echo "✅ Copy Registry Certificate"
-                sh """
-                    if [ -f amdp-registry.crt ]; then
-                        if command -v update-ca-trust >/dev/null 2>&1; then
-                            sudo cp amdp-registry.crt /etc/pki/ca-trust/source/anchors/
-                            sudo update-ca-trust
-                        elif command -v update-ca-certificates >/dev/null 2>&1; then
-                            sudo cp amdp-registry.crt /usr/local/share/ca-certificates/
-                            sudo update-ca-certificates
-                        else
-                            echo "⚠️ No known CA trust update command found!"
+                dir('backend') {
+                    echo "✅ Prepare Registry Certificate"
+                    sh """
+                        mkdir -p /tmp/certs
+                        # 레지스트리 인증서 추출
+                        echo | openssl s_client -showcerts -servername ${IMAGE_REGISTRY_URL} -connect ${IMAGE_REGISTRY_URL}:443 2>/dev/null | \
+                            awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/ { print \$0 }' > amdp-registry.crt
+                        
+                        # 인증서 파일 유효성 체크
+                        if [ ! -s amdp-registry.crt ]; then
+                            echo "ERROR: 인증서가 비어있거나 유효하지 않습니다!"
+                            exit 1
                         fi
-                    else
-                        echo "ERROR: amdp-registry.crt not found!"
-                        exit 1
-                    fi
-                """
+
+                        # 시스템 CA에 설치
+                        sudo cp amdp-registry.crt /usr/local/share/ca-certificates/
+                        sudo update-ca-certificates
+
+                        # Java keystore에도 추가 (Buildah가 Java 기반일 경우 필요)
+                        sudo keytool -importcert -trustcacerts -keystore /etc/ssl/certs/java/cacerts \
+                            -storepass changeit -noprompt -alias amdp-registry -file amdp-registry.crt || true
+                    """
+                }
             }
         }
 

@@ -15,13 +15,12 @@ spec:
     spec:
       containers:
       - name: backend
-        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:latest
+        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:1.0.0-9219480f7b7c
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
           protocol: TCP
-        
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "prod"
@@ -43,28 +42,24 @@ spec:
             secretKeyRef:
               name: openai-secret
               key: api-key
-        
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "128Mi"   # 최소 요청
+            cpu: "50m"        # 최소 요청
           limits:
-            memory: "512Mi"
-            cpu: "500m"
-        
-        # ✅ liveness & readiness probe 경로를 /actuator/health로 수정
+            memory: "256Mi"   # 제한도 낮춤
+            cpu: "200m"
         livenessProbe:
           httpGet:
-            path: /actuator/health
+            path: /actuator/health/liveness
             port: 8080
-          initialDelaySeconds: 90
+          initialDelaySeconds: 30
           periodSeconds: 10
           failureThreshold: 3
-        
         readinessProbe:
           httpGet:
-            path: /actuator/health
+            path: /actuator/health/readiness
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 15
           periodSeconds: 5
           failureThreshold: 3

@@ -35,8 +35,7 @@ public class SecurityConfig {
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable());
             // ❌ anonymous 비활성화 제거 (K8s probe가 접근 불가능했음)
-            // .anonymous(anonymous -> anonymous.disable());
-
+          
         return http.build();
     }
 

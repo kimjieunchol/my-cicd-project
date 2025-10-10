@@ -44,24 +44,26 @@ pipeline {
 
         stage('Prepare Registry Cert') {
             steps {
-                echo "✅ Prepare Registry Certificate"
+                echo "✅ Copy Registry Certificate"
                 sh """
-                    mkdir -p /tmp/certs
-                    echo | openssl s_client -showcerts -servername ${IMAGE_REGISTRY_URL} -connect ${IMAGE_REGISTRY_URL}:443 2>/dev/null | \
-                    openssl x509 > /tmp/certs/${IMAGE_REGISTRY_URL}.crt
-
-                    if command -v update-ca-trust >/dev/null 2>&1; then
-                        sudo cp /tmp/certs/${IMAGE_REGISTRY_URL}.crt /etc/pki/ca-trust/source/anchors/
-                        sudo update-ca-trust
-                    elif command -v update-ca-certificates >/dev/null 2>&1; then
-                        sudo cp /tmp/certs/${IMAGE_REGISTRY_URL}.crt /usr/local/share/ca-certificates/
-                        sudo update-ca-certificates
+                    if [ -f amdp-registry.crt ]; then
+                        if command -v update-ca-trust >/dev/null 2>&1; then
+                            sudo cp amdp-registry.crt /etc/pki/ca-trust/source/anchors/
+                            sudo update-ca-trust
+                        elif command -v update-ca-certificates >/dev/null 2>&1; then
+                            sudo cp amdp-registry.crt /usr/local/share/ca-certificates/
+                            sudo update-ca-certificates
+                        else
+                            echo "⚠️ No known CA trust update command found!"
+                        fi
                     else
-                        echo "⚠️ No known CA trust update command found!"
+                        echo "ERROR: amdp-registry.crt not found!"
+                        exit 1
                     fi
                 """
             }
         }
+
 
         stage('Build with Maven') {
             steps {

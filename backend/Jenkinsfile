@@ -42,6 +42,27 @@ pipeline {
             }
         }
 
+        stage('Prepare Registry Cert') {
+            steps {
+                echo "✅ Prepare Registry Certificate"
+                sh """
+                    mkdir -p /tmp/certs
+                    echo | openssl s_client -showcerts -servername ${IMAGE_REGISTRY_URL} -connect ${IMAGE_REGISTRY_URL}:443 2>/dev/null | \
+                    openssl x509 > /tmp/certs/${IMAGE_REGISTRY_URL}.crt
+
+                    if command -v update-ca-trust >/dev/null 2>&1; then
+                        sudo cp /tmp/certs/${IMAGE_REGISTRY_URL}.crt /etc/pki/ca-trust/source/anchors/
+                        sudo update-ca-trust
+                    elif command -v update-ca-certificates >/dev/null 2>&1; then
+                        sudo cp /tmp/certs/${IMAGE_REGISTRY_URL}.crt /usr/local/share/ca-certificates/
+                        sudo update-ca-certificates
+                    else
+                        echo "⚠️ No known CA trust update command found!"
+                    fi
+                """
+            }
+        }
+
         stage('Build with Maven') {
             steps {
                 echo '=== Build Backend with Maven ==='
@@ -75,10 +96,9 @@ pipeline {
                         echo "=== Building and Pushing Backend Docker Image with Buildah ==="
                         withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
                             sh """
-                                # 로그인 재시도 로직
                                 for i in 1 2 3; do
                                     echo "Login attempt \$i..."
-                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}; then
+                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL}; then
                                         echo "Login successful!"
                                         break
                                     fi
@@ -88,18 +108,11 @@ pipeline {
                                     fi
                                     sleep 3
                                 done
-                                
-                                # 이미지 빌드
-                                sudo -E buildah bud --format docker --tls-verify=false -t ${IMAGE_REF} -f Dockerfile .
-                                
-                                # 이미지 푸시
-                                sudo -E buildah push --tls-verify=false ${IMAGE_REF}
-                                
-                                # latest 태그 추가 및 푸시
+
+                                sudo -E buildah bud --format docker -t ${IMAGE_REF} -f Dockerfile .
+                                sudo -E buildah push ${IMAGE_REF}
                                 sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
-                                sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
-                                
-                                # 로그아웃
+                                sudo -E buildah push ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
                                 sudo -E buildah logout ${IMAGE_REGISTRY_URL} || true
                             """
                         }
@@ -129,7 +142,6 @@ pipeline {
                         echo "=== BEFORE UPDATE ==="
                         grep -n 'image:' \${K8S_FILE} || true
 
-                        # 이미지 태그 업데이트
                         sed -Ei "s#(image:[[:space:]]*${IMAGE_REGISTRY}/${IMAGE_NAME})[^[:space:]]*#\\1:${FINAL_IMAGE_TAG}#" \${K8S_FILE}
 
                         echo "=== AFTER UPDATE ==="
@@ -145,16 +157,13 @@ pipeline {
                     script {
                         sh """
                             echo "=== Applying Kubernetes manifests ==="
-                            
-                            # Apply all resources except deployment
                             for file in ./k8s/*.yaml; do
                                 if [[ "\$(basename \$file)" != *"deploy"* ]]; then
                                     echo "Applying \$file..."
                                     kubectl apply -n ${K8S_NAMESPACE} -f \$file || true
                                 fi
                             done
-                            
-                            # Force replace deployment to clear any cached invalid configuration
+
                             echo "=== Replacing deployment with --force ==="
                             kubectl replace -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml --force || {
                                 echo "Replace failed, trying delete + apply..."
@@ -162,18 +171,17 @@ pipeline {
                                 sleep 2
                                 kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml
                             }
-                            
+
                             echo "=== Waiting for rollout (5 minutes) ==="
                             kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=5m || true
-                            
+
                             echo "=== Checking Pod status ==="
                             kubectl get pods -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME}
-                            
+
                             echo "=== Checking latest Pod events ==="
                             kubectl describe pod -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME} | tail -30 || true
                         """
                         
-                        // 롤아웃 상태 확인
                         def rolloutStatus = sh(
                             script: "kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=3m",
                             returnStatus: true

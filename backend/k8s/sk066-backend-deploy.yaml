@@ -13,58 +13,62 @@ spec:
       labels:
         app: sk066-backend
     spec:
+      # ✅ 프라이빗 레지스트리 로그인용 Secret
+      imagePullSecrets:
+        - name: skala-registry-secret
+      
       containers:
-      - name: backend
-        image: amdp-registry.skala-ai.com/skala25a/sk066-backend:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8080
-          name: http
-          protocol: TCP
-        
-        env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: "prod"
-        - name: SPRING_DATASOURCE_URL
-          value: "jdbc:postgresql://postgres.skala-practice.svc.cluster.local:5432/ahub_vectordb"
-        - name: SPRING_DATASOURCE_USERNAME
-          value: "postgres"
-        - name: SPRING_DATASOURCE_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: postgres-password
-        - name: SPRING_REDIS_HOST
-          value: "redis"
-        - name: SPRING_REDIS_PORT
-          value: "6379"
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: openai-secret
-              key: api-key
-        
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        
-        # ✅ liveness & readiness probe 경로를 /actuator/health로 수정
-        livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8080
-          initialDelaySeconds: 90
-          periodSeconds: 10
-          failureThreshold: 3
-        
-        readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8080
-          initialDelaySeconds: 60
-          periodSeconds: 5
-          failureThreshold: 3
+        - name: backend
+          image: amdp-registry.skala-ai.com/skala25a/sk066-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres.skala-practice.svc.cluster.local:5432/ahub_vectordb"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "postgres"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: postgres-password
+            - name: SPRING_REDIS_HOST
+              value: "redis"
+            - name: SPRING_REDIS_PORT
+              value: "6379"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-secret
+                  key: api-key
+          
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          
+          # ✅ liveness & readiness probes
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            failureThreshold: 3

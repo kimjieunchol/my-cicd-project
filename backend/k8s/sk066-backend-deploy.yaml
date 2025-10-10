@@ -1,52 +1,4 @@
 # =========================
-# Ingress for sk066-backend
-# =========================
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: sk066-backend-ingress
-  namespace: skala-practice
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  ingressClassName: public-nginx
-  rules:
-  - host: sk066-backend.skala25a.project.skala-ai.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: sk066-backend
-            port:
-              number: 8080
-  tls:
-  - hosts:
-    - sk066-backend.skala25a.project.skala-ai.com
-    secretName: sk066-backend-tls-cert
-
----
-
-# =========================
-# Service for sk066-backend
-# =========================
-apiVersion: v1
-kind: Service
-metadata:
-  name: sk066-backend
-  namespace: skala-practice
-spec:
-  selector:
-    app: sk066-backend
-  ports:
-    - port: 8080
-      targetPort: 8080
-  type: ClusterIP
-
----
-
-# =========================
 # Deployment for sk066-backend
 # =========================
 apiVersion: apps/v1
@@ -72,6 +24,7 @@ spec:
         - containerPort: 8080
           name: http
           protocol: TCP
+        
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "prod"
@@ -93,7 +46,7 @@ spec:
             secretKeyRef:
               name: openai-secret
               key: api-key
-
+        
         resources:
           requests:
             memory: "256Mi"
@@ -101,7 +54,7 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
-
+        
         livenessProbe:
           httpGet:
             path: /actuator/health/liveness
@@ -109,7 +62,7 @@ spec:
           initialDelaySeconds: 90
           periodSeconds: 10
           failureThreshold: 3
-
+        
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness

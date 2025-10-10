@@ -145,7 +145,23 @@ pipeline {
                     script {
                         sh """
                             echo "=== Applying Kubernetes manifests ==="
-                            kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/
+                            
+                            # Apply all resources except deployment
+                            for file in ./k8s/*.yaml; do
+                                if [[ "\$(basename \$file)" != *"deploy"* ]]; then
+                                    echo "Applying \$file..."
+                                    kubectl apply -n ${K8S_NAMESPACE} -f \$file || true
+                                fi
+                            done
+                            
+                            # Force replace deployment to clear any cached invalid configuration
+                            echo "=== Replacing deployment with --force ==="
+                            kubectl replace -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml --force || {
+                                echo "Replace failed, trying delete + apply..."
+                                kubectl delete deployment ${IMAGE_NAME} -n ${K8S_NAMESPACE} --ignore-not-found=true
+                                sleep 2
+                                kubectl apply -n ${K8S_NAMESPACE} -f ./k8s/sk066-backend-deploy.yaml
+                            }
                             
                             echo "=== Waiting for rollout (5 minutes) ==="
                             kubectl rollout status -n ${K8S_NAMESPACE} deployment/${IMAGE_NAME} --timeout=5m || true
@@ -154,7 +170,7 @@ pipeline {
                             kubectl get pods -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME}
                             
                             echo "=== Checking latest Pod events ==="
-                            kubectl describe pod -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME} | tail -30
+                            kubectl describe pod -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME} | tail -30 || true
                         """
                         
                         // 롤아웃 상태 확인
@@ -168,7 +184,7 @@ pipeline {
                             sh "kubectl logs -n ${K8S_NAMESPACE} -l app=${IMAGE_NAME} --tail=50 || true"
                             error("Deployment failed - check logs above")
                         } else {
-                            echo "Deployment successful!"
+                            echo "✅ Deployment successful!"
                         }
                     }
                 }

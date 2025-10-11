@@ -112,13 +112,15 @@ pipeline {
                 echo '=== Update Kubernetes Manifest ==='
                 script {
                     sh """
-                        echo "Updating k8s/sk066-backend-deploy.yaml with image: ${IMAGE_REF}"
-                        sed -i 's|image: amdp-registry.skala-ai.com/skala25a/sk066-backend:.*|image: ${IMAGE_REF}|g' k8s/sk066-backend-deploy.yaml
-                        echo "✅ Deployment manifest updated"
-                        
-                        # 변경 내용 확인
-                        echo "=== Updated manifest ==="
-                        grep "image:" k8s/sk066-backend-deploy.yaml
+                        if [ -f "k8s/sk066-backend-deploy.yaml" ]; then
+                            echo "Updating k8s/sk066-backend-deploy.yaml with image: ${IMAGE_REF}"
+                            sed -i 's|image: amdp-registry.skala-ai.com/skala25a/sk066-backend:.*|image: ${IMAGE_REF}|g' k8s/sk066-backend-deploy.yaml
+                            echo "✅ Deployment manifest updated"
+                            grep "image:" k8s/sk066-backend-deploy.yaml
+                        else
+                            echo "⚠️  k8s/sk066-backend-deploy.yaml not found in Git repository"
+                            echo "Skipping manifest update step"
+                        fi
                     """
                 }
             }
@@ -127,12 +129,23 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 echo '=== Deploy to Kubernetes ==='
-                sh """
-                    echo "Deploying to Kubernetes namespace: ${K8S_NAMESPACE}"
-                    kubectl apply -f k8s/sk066-backend-deploy.yaml -n ${K8S_NAMESPACE}
-                    kubectl rollout status deployment/sk066-backend -n ${K8S_NAMESPACE} --timeout=5m
-                    echo "✅ Deployment completed successfully"
-                """
+                script {
+                    sh """
+                        if [ -f "k8s/sk066-backend-deploy.yaml" ]; then
+                            echo "📦 Deploying from manifest file"
+                            kubectl apply -f k8s/sk066-backend-deploy.yaml -n ${K8S_NAMESPACE}
+                        else
+                            echo "🚀 Direct deployment using kubectl set image"
+                            kubectl set image deployment/sk066-backend \
+                                backend=${IMAGE_REF} \
+                                -n ${K8S_NAMESPACE}
+                        fi
+                        
+                        echo "⏳ Waiting for rollout to complete..."
+                        kubectl rollout status deployment/sk066-backend -n ${K8S_NAMESPACE} --timeout=5m
+                        echo "✅ Deployment completed successfully"
+                    """
+                }
             }
         }
     }

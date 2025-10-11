@@ -112,8 +112,13 @@ pipeline {
                 echo '=== Update Kubernetes Manifest ==='
                 script {
                     sh """
-                        sed -i 's|image: .*|image: ${IMAGE_REF}|g' k8s/deployment.yaml
-                        echo "Updated deployment.yaml with image: ${IMAGE_REF}"
+                        echo "Updating k8s/sk066-backend-deploy.yaml with image: ${IMAGE_REF}"
+                        sed -i 's|image: amdp-registry.skala-ai.com/skala25a/sk066-backend:.*|image: ${IMAGE_REF}|g' k8s/sk066-backend-deploy.yaml
+                        echo "✅ Deployment manifest updated"
+                        
+                        # 변경 내용 확인
+                        echo "=== Updated manifest ==="
+                        grep "image:" k8s/sk066-backend-deploy.yaml
                     """
                 }
             }
@@ -123,8 +128,10 @@ pipeline {
             steps {
                 echo '=== Deploy to Kubernetes ==='
                 sh """
-                    kubectl apply -f k8s/deployment.yaml -n ${K8S_NAMESPACE}
+                    echo "Deploying to Kubernetes namespace: ${K8S_NAMESPACE}"
+                    kubectl apply -f k8s/sk066-backend-deploy.yaml -n ${K8S_NAMESPACE}
                     kubectl rollout status deployment/sk066-backend -n ${K8S_NAMESPACE} --timeout=5m
+                    echo "✅ Deployment completed successfully"
                 """
             }
         }

@@ -38,7 +38,7 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: postgres-password
-                  optional: true  # ✅ Secret이 없어도 Pod 시작 가능
+                  optional: true
             - name: SPRING_REDIS_HOST
               value: "redis"
             - name: SPRING_REDIS_PORT
@@ -48,34 +48,34 @@ spec:
                 secretKeyRef:
                   name: openai-secret
                   key: api-key
-                  optional: true  # ✅ Secret이 없어도 Pod 시작 가능
+                  optional: true
           
           resources:
             requests:
-              memory: "512Mi"    # ✅ 메모리 요청 증가
-              cpu: "200m"        # ✅ CPU 요청 증가
+              memory: "128Mi"  # ✅ 최소 요구사항으로 감소
+              cpu: "50m"       # ✅ 최소 요구사항으로 감소
             limits:
-              memory: "1Gi"      # ✅ 메모리 제한 증가 (Spring Boot는 메모리 필요)
-              cpu: "1000m"       # ✅ CPU 제한 증가
+              memory: "512Mi"
+              cpu: "500m"
           
-          # ✅ 더 여유있는 헬스체크 설정
-          livenessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 120  # ✅ 2분으로 증가 (Spring Boot 시작 시간 고려)
-            periodSeconds: 10
-            failureThreshold: 5       # ✅ 실패 허용 횟수 증가
-            timeoutSeconds: 5
+          # ⚠️ 헬스체크 임시 비활성화
+          # livenessProbe:
+          #   httpGet:
+          #     path: /actuator/health
+          #     port: 8080
+          #   initialDelaySeconds: 120
+          #   periodSeconds: 10
+          #   failureThreshold: 5
+          #   timeoutSeconds: 5
           
-          readinessProbe:
-            httpGet:
-              path: /actuator/health
-              port: 8080
-            initialDelaySeconds: 90   # ✅ 90초로 증가
-            periodSeconds: 10         # ✅ 체크 간격 증가
-            failureThreshold: 5       # ✅ 실패 허용 횟수 증가
-            timeoutSeconds: 5
+          # readinessProbe:
+          #   httpGet:
+          #     path: /actuator/health
+          #     port: 8080
+          #   initialDelaySeconds: 90
+          #   periodSeconds: 10
+          #   failureThreshold: 5
+          #   timeoutSeconds: 5
 
 ---
 apiVersion: v1

@@ -7,7 +7,7 @@ pipeline {
         GIT_ID                 = 'skala-github-id'
         IMAGE_NAME             = 'sk066-backend'
         IMAGE_TAG              = '1.0.0'
-        IMAGE_REGISTRY_URL     = 'https://amdp-registry.skala-ai.com' // HTTPS 명시
+        IMAGE_REGISTRY_HOST    = 'amdp-registry.skala-ai.com'
         IMAGE_REGISTRY_PROJECT = 'skala25a'
         DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
         K8S_NAMESPACE          = 'skala-practice'
@@ -43,13 +43,12 @@ pipeline {
                 script {
                     def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
                     env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
-                    env.IMAGE_REGISTRY  = "${IMAGE_REGISTRY_URL.replace('https://','')}/${IMAGE_REGISTRY_PROJECT}"
-                    env.IMAGE_REF       = "${IMAGE_REGISTRY}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
+                    env.IMAGE_REF       = "${IMAGE_REGISTRY_HOST}/${IMAGE_REGISTRY_PROJECT}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
 
                     echo "=== Image Metadata ==="
-                    echo "REG_HOST: ${IMAGE_REGISTRY_URL}"
+                    echo "REGISTRY: ${IMAGE_REGISTRY_HOST}"
                     echo "IMAGE_REF: ${IMAGE_REF}"
-                    echo "FINAL_IMAGE_TAG: ${FINAL_IMAGE_TAG}"
+                    echo "TAG: ${FINAL_IMAGE_TAG}"
                 }
             }
         }
@@ -62,36 +61,45 @@ pipeline {
                             sh """
                                 set -eux
 
-                                # self-signed 인증서 경로 설정
-                                sudo mkdir -p /etc/containers/certs.d/${IMAGE_REGISTRY_URL.replace('https://','')}
-                                sudo cp ../certs/ca.crt /etc/containers/certs.d/${IMAGE_REGISTRY_URL.replace('https://','')}/ca.crt || true
-
-                                # 로그인 재시도
+                                # 레지스트리 로그인 (HTTPS 강제, TLS 검증 비활성화)
                                 for i in 1 2 3; do
-                                    echo "Login attempt \$i..."
-                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login --tls-verify=false -u "\${REGISTRY_USER}" --password-stdin ${IMAGE_REGISTRY_URL.replace('https://','')}; then
-                                        echo "Login successful!"
+                                    echo "Login attempt \$i to ${IMAGE_REGISTRY_HOST}..."
+                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login \
+                                        --tls-verify=false \
+                                        -u "\${REGISTRY_USER}" \
+                                        --password-stdin \
+                                        ${IMAGE_REGISTRY_HOST}; then
+                                        echo "✅ Login successful!"
                                         break
                                     fi
                                     if [ \$i -eq 3 ]; then
-                                        echo "Login failed after 3 attempts"
+                                        echo "❌ Login failed after 3 attempts"
                                         exit 1
                                     fi
                                     sleep 3
                                 done
 
                                 # 이미지 빌드
-                                sudo -E buildah bud --format docker --tls-verify=false -t ${IMAGE_REF} -f Dockerfile .
+                                echo "🔨 Building image: ${IMAGE_REF}"
+                                sudo -E buildah bud \
+                                    --format docker \
+                                    --tls-verify=false \
+                                    -t ${IMAGE_REF} \
+                                    -f Dockerfile .
 
                                 # 이미지 푸시
+                                echo "📤 Pushing image: ${IMAGE_REF}"
                                 sudo -E buildah push --tls-verify=false ${IMAGE_REF}
 
                                 # latest 태그 추가 및 푸시
-                                sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
-                                sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
+                                echo "🏷️  Tagging and pushing latest..."
+                                sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY_HOST}/${IMAGE_REGISTRY_PROJECT}/${IMAGE_NAME}:latest
+                                sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY_HOST}/${IMAGE_REGISTRY_PROJECT}/${IMAGE_NAME}:latest
 
+                                echo "✅ Image build and push completed!"
+                                
                                 # 로그아웃
-                                sudo -E buildah logout ${IMAGE_REGISTRY_URL.replace('https://','')} || true
+                                sudo -E buildah logout ${IMAGE_REGISTRY_HOST} || true
                             """
                         }
                     }
@@ -102,12 +110,22 @@ pipeline {
         stage('Update K8s Manifest') {
             steps {
                 echo '=== Update Kubernetes Manifest ==='
+                script {
+                    sh """
+                        sed -i 's|image: .*|image: ${IMAGE_REF}|g' k8s/deployment.yaml
+                        echo "Updated deployment.yaml with image: ${IMAGE_REF}"
+                    """
+                }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
                 echo '=== Deploy to Kubernetes ==='
+                sh """
+                    kubectl apply -f k8s/deployment.yaml -n ${K8S_NAMESPACE}
+                    kubectl rollout status deployment/sk066-backend -n ${K8S_NAMESPACE} --timeout=5m
+                """
             }
         }
     }

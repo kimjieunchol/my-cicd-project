@@ -6,6 +6,79 @@ pipeline {
         GIT_BRANCH             = 'main'
         GIT_ID                 = 'skala-github-id'
         
+        // ✅ Docker Hub 사용 (your-dockerhub-username을 실제 ID로 변경)
+        DOCKER_HUB_ID          = 'kimjieunchol'  // ← GitHub ID와 동일하다고 가정
+        IMAGE_NAME             = 'sk066-backend'
+        IMAGE_TAG              = '1.0.0'
+        
+        K8S_NAMESPACE          = 'skala-practice'
+
+        BUILDAH_ISOLATION      = 'chroot'
+        STORAGE_DRIVER         = 'vfs'
+    }
+
+    options {
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                echo '=== Clone Repository ==='
+                checkout scm
+            }
+        }
+
+        stage('Build with Maven') {
+            steps {
+                echo '=== Build Backend with Maven ==='
+                dir('backend') {
+                    sh 'mvn clean package -DskipTests'
+                }
+            }
+        }
+
+        stage('Compute Image Meta') {
+            steps {
+                script {
+                    def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
+                    env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
+                    env.IMAGE_REF       = "${DOCKER_HUB_ID}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
+
+                    echo "=== Image Metadata ==="
+                    echo "Docker Hub: ${DOCKER_HUB_ID}"
+                    echo "IMAGE_REF: ${IMAGE_REF}"
+                    echo "TAG: ${FINAL_IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Image Build & Push (Docker Hub)') {
+            steps {
+                dir('backend') {
+                    script {
+                        // ✅ Credential 없이 실행 (Public 이미지로 푸시)
+                        sh """
+                            set -eux
+
+                            echo "🔨 Building image: ${IMAGE_REF}"
+                            sudo -E buildah bud --format docker -t ${IMAGE_REF} -f Dockerfile .
+
+                            echo "ℹ️  Image built successfully. Push to Docker Hub manually if needed:"
+                            echo "   docker push ${IMAGE_REF}"
+                            
+                            echo "✅ Image build completed!"
+                        """
+                    }
+                }pipeline {
+    agent any
+
+    environment {
+        GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
+        GIT_BRANCH             = 'main'
+        GIT_ID                 = 'skala-github-id'
+        
         // ✅ Docker Hub 사용
         DOCKER_HUB_ID          = 'your-dockerhub-username'  // ← 변경 필요
         IMAGE_NAME             = 'sk066-backend'

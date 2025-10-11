@@ -5,11 +5,13 @@ pipeline {
         GIT_URL                = 'https://github.com/kimjieunchol/my-cicd-project.git'
         GIT_BRANCH             = 'main'
         GIT_ID                 = 'skala-github-id'
+        
+        // ✅ Docker Hub 사용
+        DOCKER_HUB_ID          = 'your-dockerhub-username'  // ← 변경 필요
         IMAGE_NAME             = 'sk066-backend'
         IMAGE_TAG              = '1.0.0'
-        IMAGE_REGISTRY_HOST    = 'amdp-registry.skala-ai.com'
-        IMAGE_REGISTRY_PROJECT = 'skala25a'
-        DOCKER_CREDENTIAL_ID   = 'skala-image-registry-id'
+        DOCKER_CREDENTIAL_ID   = 'dockerhub-credentials'  // ← Jenkins에 Docker Hub credentials 추가 필요
+        
         K8S_NAMESPACE          = 'skala-practice'
 
         BUILDAH_ISOLATION      = 'chroot'
@@ -43,63 +45,45 @@ pipeline {
                 script {
                     def hashcode = sh(script: "date +%s%N | sha256sum | cut -c1-12", returnStdout: true).trim()
                     env.FINAL_IMAGE_TAG = "${IMAGE_TAG}-${hashcode}"
-                    env.IMAGE_REF       = "${IMAGE_REGISTRY_HOST}/${IMAGE_REGISTRY_PROJECT}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
+                    env.IMAGE_REF       = "${DOCKER_HUB_ID}/${IMAGE_NAME}:${FINAL_IMAGE_TAG}"
 
                     echo "=== Image Metadata ==="
-                    echo "REGISTRY: ${IMAGE_REGISTRY_HOST}"
+                    echo "Docker Hub: ${DOCKER_HUB_ID}"
                     echo "IMAGE_REF: ${IMAGE_REF}"
                     echo "TAG: ${FINAL_IMAGE_TAG}"
                 }
             }
         }
 
-        stage('Image Build & Push (Buildah)') {
+        stage('Image Build & Push (Buildah - Docker Hub)') {
             steps {
                 dir('backend') {
                     script {
-                        withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASS')]) {
+                        withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIAL_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                             sh """
                                 set -eux
 
-                                # 레지스트리 로그인 (HTTPS 강제, TLS 검증 비활성화)
-                                for i in 1 2 3; do
-                                    echo "Login attempt \$i to ${IMAGE_REGISTRY_HOST}..."
-                                    if echo "\${REGISTRY_PASS}" | sudo -E buildah login \
-                                        --tls-verify=false \
-                                        -u "\${REGISTRY_USER}" \
-                                        --password-stdin \
-                                        ${IMAGE_REGISTRY_HOST}; then
-                                        echo "✅ Login successful!"
-                                        break
-                                    fi
-                                    if [ \$i -eq 3 ]; then
-                                        echo "❌ Login failed after 3 attempts"
-                                        exit 1
-                                    fi
-                                    sleep 3
-                                done
-
+                                # Docker Hub 로그인
+                                echo "🔐 Logging in to Docker Hub..."
+                                echo "\${DOCKER_PASS}" | sudo -E buildah login -u "\${DOCKER_USER}" --password-stdin docker.io
+                                
                                 # 이미지 빌드
                                 echo "🔨 Building image: ${IMAGE_REF}"
-                                sudo -E buildah bud \
-                                    --format docker \
-                                    --tls-verify=false \
-                                    -t ${IMAGE_REF} \
-                                    -f Dockerfile .
+                                sudo -E buildah bud --format docker -t ${IMAGE_REF} -f Dockerfile .
 
                                 # 이미지 푸시
                                 echo "📤 Pushing image: ${IMAGE_REF}"
-                                sudo -E buildah push --tls-verify=false ${IMAGE_REF}
+                                sudo -E buildah push ${IMAGE_REF}
 
                                 # latest 태그 추가 및 푸시
                                 echo "🏷️  Tagging and pushing latest..."
-                                sudo -E buildah tag ${IMAGE_REF} ${IMAGE_REGISTRY_HOST}/${IMAGE_REGISTRY_PROJECT}/${IMAGE_NAME}:latest
-                                sudo -E buildah push --tls-verify=false ${IMAGE_REGISTRY_HOST}/${IMAGE_REGISTRY_PROJECT}/${IMAGE_NAME}:latest
+                                sudo -E buildah tag ${IMAGE_REF} ${DOCKER_HUB_ID}/${IMAGE_NAME}:latest
+                                sudo -E buildah push ${DOCKER_HUB_ID}/${IMAGE_NAME}:latest
 
                                 echo "✅ Image build and push completed!"
                                 
                                 # 로그아웃
-                                sudo -E buildah logout ${IMAGE_REGISTRY_HOST} || true
+                                sudo -E buildah logout docker.io || true
                             """
                         }
                     }
@@ -112,9 +96,9 @@ pipeline {
                 echo '=== Update Kubernetes Manifest ==='
                 script {
                     sh """
-                        if [ -f "k8s/sk066-backend-deploy.yaml" ]; then
+                        if [ -f k8s/sk066-backend-deploy.yaml ]; then
                             echo "Updating k8s/sk066-backend-deploy.yaml with image: ${IMAGE_REF}"
-                            sed -i 's|image: amdp-registry.skala-ai.com/skala25a/sk066-backend:.*|image: ${IMAGE_REF}|g' k8s/sk066-backend-deploy.yaml
+                            sed -i 's|image: .*/${IMAGE_NAME}:.*|image: ${IMAGE_REF}|g' k8s/sk066-backend-deploy.yaml
                             echo "✅ Deployment manifest updated"
                             grep "image:" k8s/sk066-backend-deploy.yaml
                         else
@@ -131,7 +115,7 @@ pipeline {
                 echo '=== Deploy to Kubernetes ==='
                 script {
                     sh """
-                        if [ -f "k8s/sk066-backend-deploy.yaml" ]; then
+                        if [ -f k8s/sk066-backend-deploy.yaml ]; then
                             echo "📦 Deploying from manifest file"
                             kubectl apply -f k8s/sk066-backend-deploy.yaml -n ${K8S_NAMESPACE}
                         else
